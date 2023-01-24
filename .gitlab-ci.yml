@@ -1,0 +1,169 @@
+stages:
+  - build
+  - prepare
+  - trigger-deployment
+
+variables:
+  BUILD_BRANCHES: "/^develop$|^development$|^staging$|^master$|^main$/"
+  BUILD_CONTEXT: $CI_PROJECT_DIR
+  BUILD_DOCKERFILE: $CI_PROJECT_DIR/Dockerfile
+  IMAGE_REGISTRY: Your Repo #. set thus variable
+  IMAGE_PATH: $CI_PROJECT_NAMESPACE/
+  IMAGE_NAME: $CI_PROJECT_NAME
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  DOCKER_EXTRA_VARS: ""
+  VARS_DIR: variables
+    DEPLOYMENTS: |
+    {
+      "default-deployment": {
+        "CHART": "$CI_PROJECT_NAME",
+        "IMAGE_TAG": "$CI_COMMIT_SHORT_SHA",
+        "IMAGE_TAG_PATH": "image.tag",
+        "VALUES_FILE": "${CI_COMMIT_REF_NAME}-values.yaml"
+      }
+    }
+  DEPLOY_BRANCHES: "/^develop$|^development$|^staging$|^master$|^main$/"
+
+build-dockerfile:
+  stage: build
+  image:
+    name: /kaniko
+    entrypoint: [""]
+  before_script:
+  - mkdir -p images
+  script:
+    # Source all .env files
+    - |
+      if [ -d ${VARS_DIR} ] && [ $(ls -A ${VARS_DIR}) ]; then
+        for var in ${VARS_DIR}/*.env; do
+          source $var
+        done
+      fi
+- |
+      /kaniko/executor \
+        --context "${BUILD_CONTEXT}" \
+        --dockerfile "${BUILD_DOCKERFILE}" \
+        --destination "${IMAGE_REGISTRY}/${IMAGE_PATH}${IMAGE_NAME}:${IMAGE_TAG}" \
+        --tarPath "images/${IMAGE_NAME}.tar" \
+        --no-push ${DOCKER_EXTRA_VARS}
+artifacts:
+    paths:
+      - images/
+    when: on_success
+    expire_in: 240 mins
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - if: '$CI_COMMIT_BRANCH =~ $DEPLOY_BRANCHES'
+
+
+prepare_deployment_pipeline:
+  image: 
+  stage: prepare
+  before_script:
+    - |
+      echo '
+      stages:
+        - update
+
+      update-helm-chart:
+
+        stage: update
+        image: 
+        variables:
+          VAULT_ROLE: ${CI_PROJECT_NAMESPACE}
+          SECRETS_FILE: "helm-repo-secrets.json"
+          VARS_DIR: variables
+        script:
+          # Source all .env files
+          - |
+            if [ -d ${VARS_DIR} ] && [ $(ls -A ${VARS_DIR}) ]; then
+              for var in ${VARS_DIR}/*.env; do
+                echo "Sourcing $var"
+                source $var
+              done
+            fi
+          # Get Helm Charts repo
+          - git clone https://${REPO_USERNAME}:${REPO_PASSWORD}@${REPO}
+          - git config --global user.email "?"
+          - git config --global user.name "?"
+          - cd helm-charts
+          # Update image tags
+          {% for item in deployments %}
+          - |
+            update=$( \
+              yq write "{{ deployments[item]["CHART"] }}/{{ deployments[item]["VALUES_FILE"] }}" "{{ deployments[item]["IMAGE_TAG_PATH"] }}" --style=double "{{ deployments[item]["IMAGE_TAG"] }}" \
+              | base64
+            )
+          - echo "${update}" | base64 -d > "{{ deployments[item]["CHART"] }}/{{ deployments[item]["VALUES_FILE"] }}"
+          - git add "{{ deployments[item]["CHART"] }}/{{ deployments[item]["VALUES_FILE"] }}"
+          {% endfor %}
+          - git diff-index --quiet HEAD || git commit -m "Update deployment image to tags"
+          # Update Helm Chart version
+          {% for item in deployments %}
+          - |
+            helm local-chart-version bump \
+              --chart "{{ deployments[item]["CHART"] }}/" \
+              --version-segment patch
+          - |
+            chart_version=$( \
+              helm local-chart-version get \
+                --chart {{ deployments[item]["CHART"] }}
+            )
+          - git add "{{ deployments[item]["CHART"] }}/Chart.yaml"
+          {% endfor %}
+          - git diff-index --quiet HEAD || git commit -m "Bump Chart version to ${chart_version}"
+          # Push changes
+          - git push
+      ' > pipeline-template.yml.j2
+  script:
+    - |
+      python -c "
+      from contextlib import redirect_stdout
+      import jinja2
+      import json
+      import os
+
+      TEMPLATE_FILE = 'pipeline-template.yml.j2'
+
+      templateLoader = jinja2.FileSystemLoader(searchpath='./')
+      templateEnv = jinja2.Environment(loader=templateLoader)
+      template = templateEnv.get_template(TEMPLATE_FILE)
+
+      deployments = json.loads(os.getenv('DEPLOYMENTS'))
+      deployments_json = os.getenv('DEPLOYMENTS')
+      secrets_file = os.getenv('SECRETS_FILE')
+
+      with open('deployment-pipeline.yml', 'w') as file:
+        with redirect_stdout(file):
+          print(template.render(deployments=deployments,deployments_json=deployments_json,secrets_file=secrets_file))"
+  after_script:
+    - cat deployment-pipeline.yml
+  artifacts:
+    paths:
+      - deployment-pipeline.yml
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - if: '$CI_COMMIT_BRANCH =~ $DEPLOY_BRANCHES'
+
+run_deployment_pipeline:
+  stage: trigger-deployment
+  needs:
+    - prepare_deployment_pipeline
+    - run_build_pipeline
+  trigger:
+    include:
+      - artifact: deployment-pipeline.yml
+        job: prepare_deployment_pipeline
+    strategy: depend
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - if: '$CI_COMMIT_BRANCH =~ $DEPLOY_BRANCHES'

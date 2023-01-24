@@ -1,6 +1,5 @@
 @@ -1 +1,270 @@
 # Simple-Maven-Example
-# Simple-Maven-Example
 
 
 # How to deploy Maven projects to Artifactory with GitLab CI/CD

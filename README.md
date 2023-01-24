@@ -1,4 +1,4 @@
-@@ -1 +1,270 @@
+
 # Simple-Maven-Example
 
 
@@ -257,3 +257,33 @@ In this article we covered the basic steps to use an Artifactory Maven repositor
 
 A similar approach could be used to interact with any other Maven compatible Binary Repository Manager.
 Obviously, you can improve these examples, optimizing the `.gitlab-ci.yml` file to better suit your needs, and adapting to your workflow.
+
+
+# Create a Dockerfile for the application
+
+Next, we need to add a line in our Dockerfile that tells Docker what base image we would like to use for our application.
+
+```Dockerfile
+# syntax=docker/dockerfile:1
+
+FROM eclipse-temurin:17-jdk-jammy as base
+WORKDIR /app
+COPY .mvn/ .mvn
+COPY mvnw pom.xml ./
+RUN ./mvnw dependency:resolve
+COPY src ./src
+
+FROM base as development
+CMD ["./mvnw", "spring-boot:run", "-Dspring-boot.run.profiles=mysql", "-Dspring-boot.run.jvmArguments='-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:8000'"]
+
+FROM base as build
+RUN ./mvnw package
+
+FROM eclipse-temurin:17-jre-jammy as production
+EXPOSE 8080
+COPY --from=build /app/target/spring-petclinic-*.jar /spring-petclinic.jar
+CMD ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/spring-petclinic.jar"]
+
+```
+
+

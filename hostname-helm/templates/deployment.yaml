@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hostname-helm.fullname" . }}
+  labels:
+    {{- include "hostname-helm.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hostname-helm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hostname-helm.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "hostname-helm.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.containerCommand }}
+          {{- toYaml .Values.containerCommand | nindent 10 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.containerPort }}
+              protocol: TCP
+          {{- if .Values.env }}
+          {{- with .Values.env }}
+          env:
+            {{- toYaml . | nindent 10 }}
+              {{- end }}
+          {{- end }}
+          {{- if .Values.livenessProbe }}
+          {{- if .Values.livenessProbe.enabled }}              
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: {{ .Values.livenessProbe.port }}
+            {{- if .Values.livenessProbe.initialDelaySeconds }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            {{- end }}
+            {{- if .Values.livenessProbe.timeoutSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- if .Values.readinessProbe }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.readinessProbe.port }}
+            {{- if .Values.readinessProbe.initialDelaySeconds }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            {{- end }}
+            {{- if .Values.readinessProbe.timeoutSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            {{- end }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+          - name: {{ .Values.persistence.volumeName }}
+            mountPath: {{ .Values.persistence.mountPath }}
+      volumes:
+      - name: {{ .Values.persistence.volumeName }}
+        persistentVolumeClaim:
+          claimName: {{ include "hostname-helm.fullname" . }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

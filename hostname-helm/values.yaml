@@ -1,0 +1,92 @@
+replicaCount: 1
+image:
+  repository: harbor.hostname.local/golang-test
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "30ac4209"
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+podAnnotations: {}
+podSecurityContext: {}
+# fsGroup: 2000
+
+securityContext: {}
+# capabilities:
+#   drop:
+#   - ALL
+# readOnlyRootFilesystem: true
+# runAsNonRoot: true
+# runAsUser: 1000
+containerCommand: {}
+env: {}
+service:
+  type: ClusterIP
+  port: 80
+  containerPort: 8000
+ingress:
+  enabled: true
+  hosts:
+    - host: hostname-time.local
+      paths:
+        - path: /api/v1
+  tls:
+    - secretName: default-tls
+      hosts:
+        - hostname-time.local
+livenessProbe:
+  enabled: false
+  path: /api/v1
+  port: http
+  initialDelaySeconds: 128
+readinessProbe:
+  enabled: true
+  path: /api/v1
+  port: http
+  initialDelaySeconds: 128
+persistence:
+  # server.persistence.enabled is the toggle for server volume persistence.
+  enabled: false
+  accessMode: "ReadWriteMany"
+  # The storage space that should be claimed from the persistent volume
+  size: 10Gi
+  mountPath: /opt
+  storageClass: nfs-client
+  storageClassName: nfs-client
+  volumeName: hostname-time
+resources:
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  limits:
+    cpu: 150m
+    memory: 200Mi
+  requests:
+    cpu: 100m
+    memory: 100Mi
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+nodeSelector: {}
+tolerations: []
+affinity: {}
+serviceMonitor:
+  enabled: false
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack-development
+  endpoints:
+    - port: http
+      path: /actuator/prometheus

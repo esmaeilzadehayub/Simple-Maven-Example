@@ -1,0 +1,25 @@
+{{- if .Values.serviceMonitor }}{{ if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  {{- if .Values.serviceMonitor.namespace }}
+  namespace: {{ .Values.serviceMonitor.namespace }}
+  {{- end }}
+  name: {{ include "hostname-helm.fullname" . }}
+  {{- with .Values.serviceMonitor.labels }}
+  labels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "hostname-helm.selectorLabels" . | nindent 6 }}
+  {{- with .Values.serviceMonitor.endpoints }}
+  endpoints:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  namespaceSelector: 
+    matchNames: 
+    - {{.Release.Namespace}}
+{{- end }}
+{{- end }}

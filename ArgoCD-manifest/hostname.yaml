@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1                              # The Argo CRD version
+kind: Application                                             # The Argo CRD kind
+metadata:
+  name: demo-app                                              # Name of the ArgoCD app
+  namespace: argocd                                           # Namespace to deploy the app definition to (should always be `argocd`)
+spec:
+  project: development                                        # The ArgoCD project to deploy the app in
+  source:
+    repoURL: YourRepo  # The repo URL to get the kubernetes manifests from
+    targetRevision: HEAD                                      # The branch to use
+    path: demo                                                # The path inside the repo storing the manifests
+    helm:
+      valueFiles:                                             # A list of values files, inside the helm chart, to use for this deployment
+        - values.yaml
+  destination:
+    server: YourServer    # The target cluster (Check Rancher cluster URLs)
+    namespace: demo                                           # The namespace in which to deploy the manifests
+  syncPolicy:
+    automated:
+      prune: true                                             # Prune the app on sync
+      selfHeal: true                                          # Try to heal the app on failure
+    syncOptions:
+      - CreateNamespace=true                                  # Create the specified namespace, if non existent

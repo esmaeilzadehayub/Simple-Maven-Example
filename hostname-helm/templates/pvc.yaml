@@ -1,0 +1,24 @@
+{{- if .Values.persistence }}
+{{- if .Values.persistence.enabled }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "hostname-helm.fullname" . }}
+  labels:
+    {{- include "hostname-helm.labels" . | nindent 4 }}
+  {{- if .Values.persistence.storageClass }}
+  annotations:
+    volume.beta.kubernetes.io/storage-class: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- if .Values.persistence.accessMode }}
+    - {{ .Values.persistence.accessMode | quote }}
+    {{- else }}
+    - ReadWriteOnce
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+{{- end }}
+{{- end }}

@@ -412,9 +412,3 @@ spec:
 ```
 
 To create a new ArgoCD managed app just create a YAML file like the one above in the `apps` directory and customize the parts you want to change.
-
-# check your service 
-url:8000/api/v1
-
-<img width="890" alt="Screenshot 2022-10-30 at 09 37 40" src="https://user-images.githubusercontent.com/28998255/198869799-6163e4ca-c3d7-48f5-b1bf-947d90e21f25.png">
-

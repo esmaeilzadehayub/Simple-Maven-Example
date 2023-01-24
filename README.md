@@ -1,4 +1,4 @@
-@@ -1 +1,270 @@
+
 # Simple-Maven-Example
 
 
@@ -257,3 +257,158 @@ In this article we covered the basic steps to use an Artifactory Maven repositor
 
 A similar approach could be used to interact with any other Maven compatible Binary Repository Manager.
 Obviously, you can improve these examples, optimizing the `.gitlab-ci.yml` file to better suit your needs, and adapting to your workflow.
+
+
+# Create a Dockerfile for the application
+
+Next, we need to add a line in our Dockerfile that tells Docker what base image we would like to use for our application.
+
+```Dockerfile
+# syntax=docker/dockerfile:1
+
+FROM eclipse-temurin:17-jdk-jammy as base
+WORKDIR /app
+COPY .mvn/ .mvn
+COPY mvnw pom.xml ./
+RUN ./mvnw dependency:resolve
+COPY src ./src
+
+FROM base as development
+CMD ["./mvnw", "spring-boot:run", "-Dspring-boot.run.profiles=mysql", "-Dspring-boot.run.jvmArguments='-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:8000'"]
+
+FROM base as build
+RUN ./mvnw package
+
+FROM eclipse-temurin:17-jre-jammy as production
+EXPOSE 8080
+COPY --from=build /app/target/spring-petclinic-*.jar /spring-petclinic.jar
+CMD ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/spring-petclinic.jar"]
+
+```
+# Helm Charts
+
+👷 Collection of Helm Charts for Kubernetes deployments ☸️
+
+[[_TOC_]]
+
+## Intro
+
+[Helm](https://helm.sh/) is generally described as the package manager for Kubernetes and Charts are the format of packaging an application for Kubernetes.
+
+A Helm Chart consists at least of the following components:
+
+```plain
+example-chart
+├── Chart.yaml                # Contains information about the Chart
+├── templates                 # Contains all Kubernetes manifests to be rendered
+│   └── example-manifest.yaml
+└── values.yaml               # Contains all variables the the manifests are rendered with
+```
+
+Creating a Helm Chart is as simple as gathering all your Kubernetes manifests in the `templates` folder and replacing everything you want to customize with variables ( `{{ .Values.<VARIABLE> }}`) you then place in your `values.yaml` file. Add the info about your Chart to `Chart.yaml` and you are ready to install it to Kubernetes with `helm install <DEPLOYMENT_NAME> <CHART_LOCATION> `.
+
+## Best Practices
+
+To create a Helm Chart quickly you can just run `helm create <CHART_NAME>`, which will create a generic Helm Chart for a web service. You can then customize the Chart to your liking.
+
+This method ensures, that all Charts have the same structure, at least for their base, which makes it easier for CI and CD pipelines to work with the Charts.
+
+
+### Testing your Chart
+
+If you develop a new Helm Chart it's good to test it before deploying or pushing it. There are two basic ways to do this.
+
+#### 1. `helm lint`
+
+With `helm lint` you can lint a given Helm Chart to check for general errors and the following of best practices.
+Simply run the following command:
+
+```bash
+helm lint <CHART> -f <PATH/TO/VALUES_FILE>
+# for example
+helm lint demo -f demo/values.yaml
+```
+
+#### 2. `helm template`
+
+With `helm template` you can template a given Helm Chart, which will output the compiled Kubernetes manifests.
+With this you see if your Helm Chart is able to compile and you can check the output to see what will be applied to Kubernetes.
+Simply run the following command:
+
+```bash
+helm template <RELEASE_NAME> <CHART> -f <PATH/TO/VALUES_FILE>
+# for example
+helm template test-demo demo -f demo/values.yaml
+```
+
+<img width="490" alt="Screenshot 2022-10-30 at 09 42 05" src="https://user-images.githubusercontent.com/28998255/198869968-73370138-6cc5-4dd4-8322-a63e80c3beac.png">
+
+
+# ArgoCD
+
+
+[ArgoCD](https://argoproj.github.io/argo-cd/) is a declarative, GitOps continous delivery tool for Kubernetes. This means you describe the state of a resource in an ArgoCD config file and ArgoCD takes care that this resource in the cluster always comlies with the description you gave in the configfile.
+
+By using ArgoCD and the concept of GitOps we get some major benefits:
+
+- Our Kubernetes manifests stay valid
+- We have a single source of truth for the application state on Kubernetes
+- Easy versioning and rollback of changes to the application
+.
+
+
+## Workflow
+
+The complete workflow of our CI + CD summarises to the following steps:
+
+1. A developer pushes code to his projects repository
+2. Gitlab CI performes the CI tasks specified in the `.gitlab-ci.yml` file, i.e.:
+   - Running tests against the source code
+   - Building a Dockerfile
+   - Pushing the Dockerimage to a registry
+   - Security & vulnerability scanning
+3. After the above tasks one more CI task will update the corresponding Helm chart for this project, with the new Dockerimage tag
+4. ArgoCD watches it's configured apps and will notice the changes in the Helm chart and will update the current deployment with the new version
+
+![argocd-workflow](https://user-images.githubusercontent.com/28998255/198868788-86970581-c210-4b55-8f64-5615abb57523.png)
+
+
+## Create a new ArgoCD managed app
+
+ArgoCD is configured to manage all resources in the app directory.
+Because ArgoCD provides Kubernetes CRDs for it's configuration we can place our
+new ArgoCD app in the `apps` directory and ArgoCD will automatically pick it up.
+The directory structure inside the `apps` directory represents our clusters,
+but is just for better overview, the placement of an application definition
+inside a specific directory does not mean it will be deployed to that cluster,
+this is defined in the `spec.destination` section of the application definition.
+
+An ArgoCD app definition looks something like the following:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1                              # The Argo CRD version
+kind: Application                                             # The Argo CRD kind
+metadata:
+  name: demo-app                                              # Name of the ArgoCD app
+  namespace: argocd                                           # Namespace to deploy the app definition to (should always be `argocd`)
+spec:
+  project: development                                        # The ArgoCD project to deploy the app in
+  source:
+    repoURL: YourRepo  # The repo URL to get the kubernetes manifests from
+    targetRevision: HEAD                                      # The branch to use
+    path: demo                                                # The path inside the repo storing the manifests
+    helm:
+      valueFiles:                                             # A list of values files, inside the helm chart, to use for this deployment
+        - values.yaml
+  destination:
+    server: YourServer    # The target cluster (Check Rancher cluster URLs)
+    namespace: demo                                           # The namespace in which to deploy the manifests
+  syncPolicy:
+    automated:
+      prune: true                                             # Prune the app on sync
+      selfHeal: true                                          # Try to heal the app on failure
+    syncOptions:
+      - CreateNamespace=true                                  # Create the specified namespace, if non existent
+```
+
+To create a new ArgoCD managed app just create a YAML file like the one above in the `apps` directory and customize the parts you want to change.
